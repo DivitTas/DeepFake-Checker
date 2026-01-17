@@ -105,6 +105,21 @@ def get_mp4s(dir_path):
         if f.lower().endswith(".mp4")
     ]
 
+def process_faces_from_parent(frames_parent, faces_parent, face_size):
+    os.makedirs(faces_parent, exist_ok=True)
+
+    for video_folder in os.listdir(frames_parent):
+        frames_dir = os.path.join(frames_parent, video_folder)
+        output_dir = os.path.join(faces_parent, video_folder)
+
+        if not os.path.isdir(frames_dir):
+            continue
+
+        detect_and_crop_faces(
+            frames_dir,
+            output_dir,
+            face_size=face_size
+        )
 
 
 def main():
@@ -140,13 +155,13 @@ def main():
         )
 
 
-    detect_and_crop_faces(
+    process_faces_from_parent(
         "training_files/frames/original",
         "training_files/faces/original",
         face_size=args.face_size
     )
 
-    detect_and_crop_faces(
+    process_faces_from_parent(
         "training_files/frames/fake",
         "training_files/faces/fake",
         face_size=args.face_size
