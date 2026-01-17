@@ -45,16 +45,14 @@ def extract_frames(video_path, frames_dir="frames", fps=5):
     cap.release()
     print(f"[INFO] Saved {saved} frames to {frames_dir}")
 
-
-def detect_and_crop_faces(frames_dir, face_size=380):
-    faces_dir = "cropped_faces"
-    os.makedirs(faces_dir, exist_ok=True)
-
-    frame_files = sorted(
-        [f for f in os.listdir(frames_dir) if f.endswith(".jpg")]
-    )
+def detect_and_crop_faces(frames_dir, output_dir, face_size=380):
+    
+    os.makedirs(output_dir, exist_ok=True)
+    frame_files = [f for f in os.listdir(frames_dir) if f.endswith(".jpg")]
+    frame_files.sort()
 
     total_faces = 0
+    valid_frames = 0
 
     for frame_file in frame_files:
         frame_path = os.path.join(frames_dir, frame_file)
@@ -84,7 +82,7 @@ def detect_and_crop_faces(frames_dir, face_size=380):
             crop = cv2.resize(crop, (face_size, face_size))
 
             face_filename = f"{frame_file[:-4]}_face{total_faces}.jpg"
-            cv2.imwrite(os.path.join(faces_dir, face_filename), crop)
+            cv2.imwrite(os.path.join(output_dir, face_filename), crop)
 
             crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
             crop = normalize_transform(crop)
@@ -104,11 +102,12 @@ def main():
     parser.add_argument("--video", type=str, required=True)
     parser.add_argument("--frames_dir", type=str, default="frames")
     parser.add_argument("--fps", type=int, default=5)
+    parser.add_argument("--output_dir", type=str, default="faces")
     parser.add_argument("--face_size", type=int, default=380)
     args = parser.parse_args()
 
     extract_frames(args.video, args.frames_dir, fps=args.fps)
-    detect_and_crop_faces(args.frames_dir, face_size=args.face_size)
+    detect_and_crop_faces(args.frames_dir, args.output_dir ,face_size=args.face_size)
 
 
 if __name__ == "__main__":
