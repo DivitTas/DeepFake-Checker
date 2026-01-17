@@ -35,18 +35,7 @@ def extract_frames(video_path, frames_dir="SampleTest", fps=5):
 extract_frames("sample_vid.mp4")
 
 def detect_and_crop_faces(frames_dir, output_dir, face_size=380):
-    """
-    Detect faces in frames and save crops of size face_size x face_size.
-    Skips invalid frames and ensures crops are valid for EfficientNet-B4.
-    """
-    import os
-    import cv2
-    import torch
-    from facenet_pytorch import MTCNN
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    mtcnn = MTCNN(keep_all=True, device=device)
-
+    
     os.makedirs(output_dir, exist_ok=True)
     frame_files = [f for f in os.listdir(frames_dir) if f.endswith(".jpg")]
     frame_files.sort()
