@@ -20,3 +20,4 @@ def extract_frames(video_path, frames_dir, fps=5):
         success, frame = vidcap.read()
         if not success:
             break
+print("meow")
