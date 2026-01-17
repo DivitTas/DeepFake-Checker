@@ -57,8 +57,10 @@ def detect_and_crop_faces(frames_dir, output_dir, face_size=380):
     for frame_file in frame_files:
         frame_path = os.path.join(frames_dir, frame_file)
         frame = cv2.imread(frame_path)
+        
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        boxes, _ = mtcnn.detect(frame_rgb)
 
-        boxes, _ = mtcnn.detect(frame)
         faces_batch = []
 
         if boxes is None:
@@ -96,18 +98,59 @@ def detect_and_crop_faces(frames_dir, output_dir, face_size=380):
 
     print(f"[INFO] Total faces saved: {total_faces}")
 
+def get_mp4s(dir_path):
+    return [
+        os.path.join(dir_path, f)
+        for f in os.listdir(dir_path)
+        if f.lower().endswith(".mp4")
+    ]
+
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--video", type=str, required=True)
+    parser.add_argument("--video", type=str, required=False)
     parser.add_argument("--frames_dir", type=str, default="frames")
     parser.add_argument("--fps", type=int, default=5)
     parser.add_argument("--output_dir", type=str, default="faces")
     parser.add_argument("--face_size", type=int, default=380)
     args = parser.parse_args()
 
-    extract_frames(args.video, args.frames_dir, fps=args.fps)
-    detect_and_crop_faces(args.frames_dir, args.output_dir ,face_size=args.face_size)
+
+    #sorry python gods, I am hardcoding this rn"
+    for video_path in get_mp4s("training_files/train/original"):
+        video_name = os.path.splitext(os.path.basename(video_path))[0]
+        out_dir = os.path.join("training_files/frames/original", video_name)
+
+        extract_frames(
+            video_path,
+            out_dir,
+            fps=args.fps
+        )
+
+
+    for video_path in get_mp4s("training_files/train/fake"):
+        video_name = os.path.splitext(os.path.basename(video_path))[0]
+        out_dir = os.path.join("training_files/frames/fake", video_name)
+
+        extract_frames(
+            video_path,
+            out_dir,
+            fps=args.fps
+        )
+
+
+    detect_and_crop_faces(
+        "training_files/frames/original",
+        "training_files/faces/original",
+        face_size=args.face_size
+    )
+
+    detect_and_crop_faces(
+        "training_files/frames/fake",
+        "training_files/faces/fake",
+        face_size=args.face_size
+    )
 
 
 if __name__ == "__main__":
