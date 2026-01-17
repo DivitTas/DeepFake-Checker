@@ -29,3 +29,18 @@ def extract_frames(video_path, frames_dir="SampleTest", fps=5):
     print(f"[INFO] Saved {saved_count} frames to {frames_dir}")
 
 extract_frames("sample_vid.mp4")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--video", type=str, required=True, help="Path to input video")
+    parser.add_argument("--frames_dir", type=str, default="frames", help="Folder to save frames")
+    parser.add_argument("--faces_dir", type=str, default="faces", help="Folder to save cropped faces")
+    parser.add_argument("--fps", type=int, default=5, help="Frames per second to extract")
+    parser.add_argument("--face_size", type=int, default=224, help="Face crop size")
+    args = parser.parse_args()
+
+    extract_frames(args.video, args.frames_dir, fps=args.fps)
+
+if __name__ == "__main__" :
+    main
