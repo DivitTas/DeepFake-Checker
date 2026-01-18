@@ -11,7 +11,7 @@ from preprocess import extract_frames, detect_and_crop_faces
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 THRESHOLD = 0.2  # confidence <= 0.2 => DEEPFAKE
-
+scores_list = []
 transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(
@@ -70,6 +70,7 @@ def infer_frames(model, faces_dir, fps):
             fake_probs = probs[:, 1]  # class 1 = FAKE
 
         frame_confidence = fake_probs.max().item()
+        scores_list.append(frame_confidence)
         is_fake = frame_confidence <= THRESHOLD
         label = "DEEPFAKE" if is_fake else "REAL"
 
@@ -87,7 +88,7 @@ def infer_frames(model, faces_dir, fps):
 
         print(
             f"{frame_id} | {label} | "
-            f"fake_confidence={frame_confidence:.3f} | "
+            f"real_confidence={frame_confidence:.3f} | "
             f"time={timestamp:.2f}s"
         )
 
