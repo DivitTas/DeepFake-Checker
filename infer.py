@@ -3,7 +3,7 @@ import torch
 import cv2
 import argparse
 import torchvision.transforms as transforms
-from efficientnet_pytorch import EfficientNet
+from torchvision import models
 from collections import defaultdict
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -17,9 +17,14 @@ transform = transforms.Compose([
 ])
 
 def load_model(weights_path):
-    model = EfficientNet.from_name("efficientnet-b4")
+    model = models.efficientnet_b2(weights=None)
+    model.classifier[1] = torch.nn.Linear(
+        model.classifier[1].in_features, 2
+    )
+
     state_dict = torch.load(weights_path, map_location=device)
     model.load_state_dict(state_dict)
+
     model.to(device)
     model.eval()
     return model
@@ -31,7 +36,7 @@ def load_faces_by_frame(faces_dir):
         if not fname.endswith(".jpg"):
             continue
 
-        frame_id = fname.split("_face")[0]  # frame_00012
+        frame_id = fname.split("_face")[0]
         frames[frame_id].append(os.path.join(faces_dir, fname))
 
     return frames
@@ -39,6 +44,7 @@ def load_faces_by_frame(faces_dir):
 def infer_frames(model, faces_dir):
     frames = load_faces_by_frame(faces_dir)
     frame_confidences = {}
+    confidence_sum = 0.0
 
     for frame_id, face_paths in frames.items():
         faces = []
@@ -52,14 +58,16 @@ def infer_frames(model, faces_dir):
         faces = torch.stack(faces).to(device)
 
         with torch.no_grad():
-            preds = model(faces)
-            preds = torch.sigmoid(preds)
+            logits = model(faces)              
+            probs = torch.softmax(logits, dim=1)
+            fake_probs = probs[:, 1]
 
-        frame_confidence = preds.max().item()
+        frame_confidence = fake_probs.max().item()
         frame_confidences[frame_id] = frame_confidence
-
-        print(f"{frame_id} → fake confidence: {frame_confidence:.3f}")
-
+        confidence_sum += frame_confidence
+        print(f"{frame_id} → real confidence: {frame_confidence:.3f}")
+    avg_confidence = confidence_sum / len(frame_confidences)
+    print(f"Average real confidence across frames: {avg_confidence:.3f}")
     return frame_confidences
 
 def main():
