@@ -1,19 +1,19 @@
 import os
-import torch
 import cv2
+import torch
 import argparse
+import shutil
 import torchvision.transforms as transforms
 from torchvision import models
 from collections import defaultdict
+
 from preprocess import extract_frames, detect_and_crop_faces
 
 # ---------------- CONFIG ---------------- #
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-THRESHOLD = 0.2  # confidence <= 0.2 => DEEPFAKE
-MIN_FAKE_FRAMES = 5  # minimum evidence rule
-
-scores_list = []
+THRESHOLD = 0.2          # fake_prob >= threshold => FAKE
+MIN_FAKE_FRAMES = 5
 
 transform = transforms.Compose([
     transforms.ToTensor(),
@@ -42,10 +42,14 @@ def load_faces_by_frame(faces_dir):
     frames = defaultdict(list)
 
     for fname in os.listdir(faces_dir):
-        if not fname.endswith(".jpg"):
+        if not fname.lower().endswith(".jpg"):
             continue
 
-        frame_id = fname.split("_face")[0]
+        if "_face" in fname and fname.startswith("frame_"):
+            frame_id = fname.split("_face")[0]
+        else:
+            frame_id = os.path.splitext(fname)[0]
+
         frames[frame_id].append(os.path.join(faces_dir, fname))
 
     return frames
@@ -61,9 +65,14 @@ def infer_frames(model, faces_dir, fps):
 
         for path in face_paths:
             img = cv2.imread(path)
+            if img is None:
+                continue
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img = transform(img)
             faces.append(img)
+
+        if not faces:
+            continue
 
         faces = torch.stack(faces).to(device)
 
@@ -72,17 +81,14 @@ def infer_frames(model, faces_dir, fps):
             probs = torch.softmax(logits, dim=1)
             fake_probs = probs[:, 1]  # class 1 = FAKE
 
-        frame_confidence = fake_probs.max().item()
-        scores_list.append(frame_confidence)
+        frame_confidence = fake_probs.mean().item()
 
         is_fake = frame_confidence <= THRESHOLD
         label = "DEEPFAKE" if is_fake else "REAL"
 
-        # Robust frame number extraction
         if frame_id.startswith("frame_"):
             frame_num = int(frame_id.split("_")[1])
         else:
-            # single image case
             frame_num = 0
 
         timestamp = frame_num / fps
@@ -104,7 +110,37 @@ def infer_frames(model, faces_dir, fps):
 
     return results
 
-# ---------------- SEGMENT BUILDING ---------------- #
+# ---------------- SINGLE IMAGE ---------------- #
+def infer_single_image(model, image_path, fps):
+    os.makedirs("temp_single_frame", exist_ok=True)
+    os.makedirs("temp_single_faces", exist_ok=True)
+
+    temp_img_path = os.path.join(
+        "temp_single_frame",
+        os.path.basename(image_path)
+    )
+
+    shutil.copy(image_path, temp_img_path)
+
+    detect_and_crop_faces(
+        "temp_single_frame",
+        "temp_single_faces",
+        face_size=224
+    )
+
+    if not os.listdir("temp_single_faces"):
+        print("❌ No face detected in image")
+        return
+
+    results = infer_frames(model, "temp_single_faces", fps)
+    r = results[0]
+
+    print("\n================ RESULT ================")
+    print(f"Image: {image_path}")
+    print(f"Fake confidence: {r['confidence']:.3f}")
+    print(f"Prediction: {r['label']}")
+
+# ---------------- SEGMENTS ---------------- #
 def build_fake_segments(results, fps):
     segments = []
     current_start = None
@@ -141,17 +177,23 @@ def build_fake_segments(results, fps):
 # ---------------- MAIN ---------------- #
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--faces_dir", type=str, required=True)
+    parser.add_argument("--input", type=str, required=True)
     parser.add_argument("--weights", type=str, required=True)
     parser.add_argument("--fps", type=int, default=5)
     args = parser.parse_args()
 
     model = load_model(args.weights)
+    input_path = args.input
 
-    # If input is a video, preprocess first
-    if args.faces_dir.endswith(".mp4"):
+    # -------- SINGLE IMAGE --------
+    if os.path.isfile(input_path) and input_path.lower().endswith((".jpg", ".png", ".jpeg")):
+        infer_single_image(model, input_path, args.fps)
+        return
+
+    # -------- VIDEO --------
+    if input_path.lower().endswith(".mp4"):
         extract_frames(
-            args.faces_dir,
+            input_path,
             frames_dir="temp_infer_frames",
             fps=args.fps
         )
@@ -161,28 +203,29 @@ def main():
             face_size=224
         )
         results = infer_frames(model, "temp_infer_faces", args.fps)
+
+    # -------- FACE DIRECTORY --------
+    elif os.path.isdir(input_path):
+        results = infer_frames(model, input_path, args.fps)
+
     else:
-        results = infer_frames(model, args.faces_dir, args.fps)
+        raise ValueError("Unsupported input type")
 
-    # Build time segments
-    segments = build_fake_segments(results, args.fps)
-
-    # -------- MINIMUM EVIDENCE RULE -------- #
     fake_frame_count = sum(1 for r in results if r["is_fake"])
 
     if fake_frame_count < MIN_FAKE_FRAMES:
         is_video_fake = False
-        segments = []  # discard weak evidence
+        segments = []
     else:
         is_video_fake = True
+        segments = build_fake_segments(results, args.fps)
 
-    # ---------------- SUMMARY ---------------- #
     print("\n================ SUMMARY ================")
     print(f"Fake frames detected: {fake_frame_count}")
     print(f"Video is fake: {is_video_fake}")
 
     if segments:
-        print("⚠️ Deepfake detected in the following segments:")
+        print("⚠️ Deepfake detected in segments:")
         for start, end in segments:
             print(f"- From {start:.2f}s to {end:.2f}s")
     else:
