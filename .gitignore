@@ -212,3 +212,5 @@ frames/
 cropped_faces/
 faces/
 training_files/
+train/
+train_flat/

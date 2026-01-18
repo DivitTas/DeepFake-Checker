@@ -85,16 +85,8 @@ def detect_and_crop_faces(frames_dir, output_dir, face_size=380):
 
             face_filename = f"{frame_file[:-4]}_face{total_faces}.jpg"
             cv2.imwrite(os.path.join(output_dir, face_filename), crop)
-
-            crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-            crop = normalize_transform(crop)
-
             faces_batch.append(crop)
             total_faces += 1
-
-        if faces_batch:
-            faces_batch = torch.stack(faces_batch)
-            print(f"{frame_file}: {faces_batch.shape}")
 
     print(f"[INFO] Total faces saved: {total_faces}")
 
@@ -148,11 +140,11 @@ def main():
    #   video_name = os.path.splitext(os.path.basename(video_path))[0]
    #   out_dir = os.path.join("training_files/frames/fake", video_name)
 
-   #   extract_frames(
-   #       video_path,
-   #       out_dir,
-   #       fps=args.fps
-   #   )
+        # extract_frames(
+        #     video_path,
+        #     out_dir,
+        #     fps=args.fps
+        # )
 
 
   #  process_faces_from_parent(
