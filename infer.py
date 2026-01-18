@@ -5,7 +5,7 @@ import argparse
 import torchvision.transforms as transforms
 from torchvision import models
 from collections import defaultdict
-
+from preprocess import extract_frames, detect_and_crop_faces
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 transform = transforms.Compose([
@@ -70,6 +70,8 @@ def infer_frames(model, faces_dir):
     print(f"Average real confidence across frames: {avg_confidence:.3f}")
     return frame_confidences
 
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--faces_dir", type=str, required=True)
@@ -77,7 +79,13 @@ def main():
     args = parser.parse_args()
 
     model = load_model(args.weights)
-    infer_frames(model, args.faces_dir)
+    extract_frames(args.faces_dir, frames_dir="temp_infer_frames")
+    detect_and_crop_faces(
+        "temp_infer_frames",
+        "temp_infer_faces",
+        face_size=224
+    )
+    infer_frames(model, "temp_infer_faces")
 
 if __name__ == "__main__":
     main()
