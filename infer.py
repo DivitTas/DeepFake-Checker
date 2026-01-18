@@ -10,7 +10,7 @@ from preprocess import extract_frames, detect_and_crop_faces
 # ---------------- CONFIG ---------------- #
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-THRESHOLD = 0.2  # < 0.3 => DEEPFAKE
+THRESHOLD = 0.2  # confidence <= 0.2 => DEEPFAKE
 
 transform = transforms.Compose([
     transforms.ToTensor(),
@@ -67,10 +67,11 @@ def infer_frames(model, faces_dir, fps):
         with torch.no_grad():
             logits = model(faces)
             probs = torch.softmax(logits, dim=1)
-            fake_probs = probs[:, 1]   # class 1 = FAKE
+            fake_probs = probs[:, 1]  # class 1 = FAKE
 
         frame_confidence = fake_probs.max().item()
-        label = "DEEPFAKE" if frame_confidence < THRESHOLD else "REAL"
+        is_fake = frame_confidence <= THRESHOLD
+        label = "DEEPFAKE" if is_fake else "REAL"
 
         frame_num = int(frame_id.split("_")[1])
         timestamp = frame_num / fps
@@ -79,6 +80,7 @@ def infer_frames(model, faces_dir, fps):
             "frame": frame_id,
             "frame_num": frame_num,
             "confidence": frame_confidence,
+            "is_fake": is_fake,
             "label": label,
             "timestamp": timestamp
         })
@@ -99,7 +101,7 @@ def build_fake_segments(results, fps):
 
     for r in results:
         frame_num = r["frame_num"]
-        is_fake = (r["label"] == "DEEPFAKE")
+        is_fake = r["is_fake"]
 
         if is_fake:
             if current_start is None:
@@ -137,7 +139,11 @@ def main():
 
     # If input is a video, preprocess first
     if args.faces_dir.endswith(".mp4"):
-        extract_frames(args.faces_dir, frames_dir="temp_infer_frames", fps=args.fps)
+        extract_frames(
+            args.faces_dir,
+            frames_dir="temp_infer_frames",
+            fps=args.fps
+        )
         detect_and_crop_faces(
             "temp_infer_frames",
             "temp_infer_faces",
@@ -147,14 +153,21 @@ def main():
     else:
         results = infer_frames(model, args.faces_dir, args.fps)
 
+    # Build time segments
     segments = build_fake_segments(results, args.fps)
 
+    # Video-level boolean
+    is_video_fake = any(r["is_fake"] for r in results)
+
+    print("\n================ SUMMARY ================")
+    print(f"Video is fake: {is_video_fake}")
+
     if segments:
-        print("\n⚠️ Deepfake detected in the following segments:")
+        print("⚠️ Deepfake detected in the following segments:")
         for start, end in segments:
             print(f"- From {start:.2f}s to {end:.2f}s")
     else:
-        print("\n✅ No deepfake segments detected")
+        print("✅ No deepfake segments detected")
 
 if __name__ == "__main__":
     main()
