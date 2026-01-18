@@ -11,7 +11,10 @@ from preprocess import extract_frames, detect_and_crop_faces
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 THRESHOLD = 0.2  # confidence <= 0.2 => DEEPFAKE
+MIN_FAKE_FRAMES = 5  # minimum evidence rule
+
 scores_list = []
+
 transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(
@@ -42,7 +45,7 @@ def load_faces_by_frame(faces_dir):
         if not fname.endswith(".jpg"):
             continue
 
-        frame_id = fname.split("_face")[0]  # frame_00012
+        frame_id = fname.split("_face")[0]
         frames[frame_id].append(os.path.join(faces_dir, fname))
 
     return frames
@@ -71,6 +74,7 @@ def infer_frames(model, faces_dir, fps):
 
         frame_confidence = fake_probs.max().item()
         scores_list.append(frame_confidence)
+
         is_fake = frame_confidence <= THRESHOLD
         label = "DEEPFAKE" if is_fake else "REAL"
 
@@ -88,7 +92,7 @@ def infer_frames(model, faces_dir, fps):
 
         print(
             f"{frame_id} | {label} | "
-            f"real_confidence={frame_confidence:.3f} | "
+            f"fake_confidence={frame_confidence:.3f} | "
             f"time={timestamp:.2f}s"
         )
 
@@ -157,10 +161,18 @@ def main():
     # Build time segments
     segments = build_fake_segments(results, args.fps)
 
-    # Video-level boolean
-    is_video_fake = any(r["is_fake"] for r in results)
+    # -------- MINIMUM EVIDENCE RULE -------- #
+    fake_frame_count = sum(1 for r in results if r["is_fake"])
 
+    if fake_frame_count < MIN_FAKE_FRAMES:
+        is_video_fake = False
+        segments = []  # discard weak evidence
+    else:
+        is_video_fake = True
+
+    # ---------------- SUMMARY ---------------- #
     print("\n================ SUMMARY ================")
+    print(f"Fake frames detected: {fake_frame_count}")
     print(f"Video is fake: {is_video_fake}")
 
     if segments:
