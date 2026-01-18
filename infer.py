@@ -78,7 +78,13 @@ def infer_frames(model, faces_dir, fps):
         is_fake = frame_confidence <= THRESHOLD
         label = "DEEPFAKE" if is_fake else "REAL"
 
-        frame_num = int(frame_id.split("_")[1])
+        # Robust frame number extraction
+        if frame_id.startswith("frame_"):
+            frame_num = int(frame_id.split("_")[1])
+        else:
+            # single image case
+            frame_num = 0
+
         timestamp = frame_num / fps
 
         results.append({
