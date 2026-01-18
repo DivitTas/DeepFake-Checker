@@ -79,13 +79,15 @@ def main():
     args = parser.parse_args()
 
     model = load_model(args.weights)
-    extract_frames(args.faces_dir, frames_dir="temp_infer_frames")
-    detect_and_crop_faces(
-        "temp_infer_frames",
-        "temp_infer_faces",
-        face_size=224
-    )
-    infer_frames(model, "temp_infer_faces")
-
+    if(args.faces_dir.endswith(".mp4")):
+        extract_frames(args.faces_dir, frames_dir="temp_infer_frames")
+        detect_and_crop_faces(
+            "temp_infer_frames",
+            "temp_infer_faces",
+            face_size=224
+        )
+        infer_frames(model, "temp_infer_faces")
+    else:
+        infer_frames(model, args.faces_dir)
 if __name__ == "__main__":
     main()
