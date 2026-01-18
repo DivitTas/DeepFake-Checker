@@ -125,34 +125,34 @@ def main():
 
 
     #sorry python gods, I am hardcoding this rn"
-    for video_path in get_mp4s("training_files/train/original"):
-        video_name = os.path.splitext(os.path.basename(video_path))[0]
-        out_dir = os.path.join("training_files/frames/original", video_name)
-
-        extract_frames(
-            video_path,
-            out_dir,
-            fps=args.fps
-        )
-
-
-    for video_path in get_mp4s("training_files/train/fake"):
-        video_name = os.path.splitext(os.path.basename(video_path))[0]
-        out_dir = os.path.join("training_files/frames/fake", video_name)
-
-        extract_frames(
-            video_path,
-            out_dir,
-            fps=args.fps
-        )   
+    #for video_path in get_mp4s("training_files/train/original"):
+    #    video_name = os.path.splitext(os.path.basename(video_path))[0]
+    #    out_dir = os.path.join("training_files/frames/original", video_name)
+#
+    #    extract_frames(
+    #        video_path,
+    #        out_dir,
+    #        fps=args.fps
+    #    )
 
 
-    process_faces_from_parent(
-        "training_files/frames/original",
-        "training_files/faces/original",
-        face_size=args.face_size
-    )
+   #or video_path in get_mp4s("training_files/train/fake"):
+   #   video_name = os.path.splitext(os.path.basename(video_path))[0]
+   #   out_dir = os.path.join("training_files/frames/fake", video_name)
 
+        # extract_frames(
+        #     video_path,
+        #     out_dir,
+        #     fps=args.fps
+        # )
+
+
+  #  process_faces_from_parent(
+  #      "training_files/frames/original",
+  #      "training_files/faces/original",
+  #      face_size=args.face_size
+  #  )
+#
     process_faces_from_parent(
         "training_files/frames/fake",
         "training_files/faces/fake",
