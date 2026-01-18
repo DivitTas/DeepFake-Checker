@@ -214,3 +214,5 @@ faces/
 training_files/
 train/
 train_flat/
+temp_infer_faces/
+temp_infer_frames/
