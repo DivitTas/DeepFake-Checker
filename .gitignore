@@ -211,3 +211,10 @@ SampleTest/*
 frames/
 cropped_faces/
 faces/
+training_files/
+train/
+train_flat/
+temp_infer_faces/
+temp_infer_frames/
+temp_single_faces/
+temp_single_frame/

@@ -1,0 +1,253 @@
+import os
+import cv2
+import torch
+import argparse
+import shutil
+import torchvision.transforms as transforms
+from torchvision import models
+from collections import defaultdict
+
+from preprocess import extract_frames, detect_and_crop_faces
+import csv
+import matplotlib.pyplot as plt
+
+# ---------------- CONFIG ---------------- #
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+THRESHOLD = 0.2          # fake_prob >= threshold => FAKE
+MIN_FAKE_FRAMES = 5
+scores_list = []
+
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    )
+])
+
+# ---------------- MODEL ---------------- #
+def load_model(weights_path):
+    model = models.efficientnet_b2(weights=None)
+    model.classifier[1] = torch.nn.Linear(model.classifier[1].in_features, 2)
+    state_dict = torch.load(weights_path, map_location=device)
+    model.load_state_dict(state_dict)
+    model.to(device)
+    model.eval()
+    return model
+
+# ---------------- DATA LOADING ---------------- #
+def load_faces_by_frame(faces_dir):
+    frames = defaultdict(list)
+    for fname in os.listdir(faces_dir):
+        if not fname.lower().endswith(".jpg"):
+            continue
+
+        if "_face" in fname and fname.startswith("frame_"):
+            frame_id = fname.split("_face")[0]
+        else:
+            frame_id = os.path.splitext(fname)[0]
+
+        frames[frame_id].append(os.path.join(faces_dir, fname))
+
+    return frames
+
+# ---------------- INFERENCE ---------------- #
+def infer_frames(model, faces_dir, fps):
+    frames = load_faces_by_frame(faces_dir)
+    results = []
+
+    for frame_id in sorted(frames.keys()):
+        face_paths = frames[frame_id]
+        faces = []
+
+        for path in face_paths:
+            img = cv2.imread(path)
+            if img is None:
+                continue
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = transform(img)
+            faces.append(img)
+
+        if not faces:
+            continue
+
+        faces = torch.stack(faces).to(device)
+
+        with torch.no_grad():
+            logits = model(faces)
+            probs = torch.softmax(logits, dim=1)
+            fake_probs = probs[:, 1]  # class 1 = FAKE
+
+        frame_confidence = fake_probs.mean().item()
+        scores_list.append(frame_confidence)
+
+        is_fake = frame_confidence <= THRESHOLD
+        label = "DEEPFAKE" if is_fake else "REAL"
+
+        if frame_id.startswith("frame_"):
+            frame_num = int(frame_id.split("_")[1])
+        else:
+            frame_num = 0
+
+        timestamp = frame_num / fps
+
+        results.append({
+            "frame": frame_id,
+            "frame_num": frame_num,
+            "confidence": frame_confidence,
+            "is_fake": is_fake,
+            "label": label,
+            "timestamp": timestamp
+        })
+
+        print(
+            f"{frame_id} | {label} | "
+            f"fake_confidence={frame_confidence:.3f} | "
+            f"time={timestamp:.2f}s"
+        )
+
+    return results
+
+# ---------------- SINGLE IMAGE ---------------- #
+def infer_single_image(model, image_path, fps):
+    os.makedirs("temp_single_frame", exist_ok=True)
+    os.makedirs("temp_single_faces", exist_ok=True)
+
+    temp_img_path = os.path.join(
+        "temp_single_frame",
+        os.path.basename(image_path)
+    )
+
+    shutil.copy(image_path, temp_img_path)
+
+    detect_and_crop_faces(
+        "temp_single_frame",
+        "temp_single_faces",
+        face_size=224
+    )
+
+    if not os.listdir("temp_single_faces"):
+        print("❌ No face detected in image")
+        return
+
+    results = infer_frames(model, "temp_single_faces", fps)
+    r = results[0]
+
+    print("\n================ RESULT ================")
+    print(f"Image: {image_path}")
+    print(f"Fake confidence: {r['confidence']:.3f}")
+    print(f"Prediction: {r['label']}")
+
+# ---------------- SEGMENTS ---------------- #
+def build_fake_segments(results, fps):
+    segments = []
+    current_start = None
+    prev_frame = None
+
+    for r in results:
+        frame_num = r["frame_num"]
+        is_fake = r["is_fake"]
+
+        if is_fake:
+            if current_start is None:
+                current_start = frame_num
+            elif prev_frame is not None and frame_num != prev_frame + 1:
+                segments.append((current_start / fps, prev_frame / fps))
+                current_start = frame_num
+        else:
+            if current_start is not None:
+                segments.append((current_start / fps, prev_frame / fps))
+                current_start = None
+
+        prev_frame = frame_num
+
+    if current_start is not None:
+        segments.append((current_start / fps, prev_frame / fps))
+
+    return segments
+
+# ---------------- PLOT & CSV ---------------- #
+def save_scores_csv_and_plot(scores_list):
+    # Save CSV
+    csv_file_path = "frame_scores.csv"
+    with open(csv_file_path, mode='w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["frame_index", "score"])
+        for idx, score in enumerate(scores_list):
+            writer.writerow([idx, score])
+    print(f"[INFO] Saved {len(scores_list)} scores to {csv_file_path}")
+
+    # Plot confidence vs frame
+    plt.figure(figsize=(10, 4))
+    plt.plot(range(len(scores_list)), scores_list, marker='o')
+    plt.title("Fake Confidence per Frame")
+    plt.xlabel("Frame Index")
+    plt.ylabel("Fake Confidence")
+    plt.grid(True)
+    plt.savefig("confidence_vs_frame.png")
+    plt.show()
+    print("[INFO] Saved plot to confidence_vs_frame.png")
+
+# ---------------- MAIN ---------------- #
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input", type=str, required=True)
+    parser.add_argument("--weights", type=str, required=True)
+    parser.add_argument("--fps", type=int, default=5)
+    args = parser.parse_args()
+
+    model = load_model(args.weights)
+    input_path = args.input
+
+    # -------- SINGLE IMAGE --------
+    if os.path.isfile(input_path) and input_path.lower().endswith((".jpg", ".png", ".jpeg")):
+        infer_single_image(model, input_path, args.fps)
+        return
+
+    # -------- VIDEO --------
+    if input_path.lower().endswith(".mp4"):
+        extract_frames(
+            input_path,
+            frames_dir="temp_infer_frames",
+            fps=args.fps
+        )
+        detect_and_crop_faces(
+            "temp_infer_frames",
+            "temp_infer_faces",
+            face_size=224
+        )
+        results = infer_frames(model, "temp_infer_faces", args.fps)
+
+    # -------- FACE DIRECTORY --------
+    elif os.path.isdir(input_path):
+        results = infer_frames(model, input_path, args.fps)
+
+    else:
+        raise ValueError("Unsupported input type")
+
+    fake_frame_count = sum(1 for r in results if r["is_fake"])
+
+    if fake_frame_count < MIN_FAKE_FRAMES:
+        is_video_fake = False
+        segments = []
+    else:
+        is_video_fake = True
+        segments = build_fake_segments(results, args.fps)
+
+    print("\n================ SUMMARY ================")
+    print(f"Fake frames detected: {fake_frame_count}")
+    print(f"Video is fake: {is_video_fake}")
+
+    if segments:
+        print("⚠️ Deepfake detected in segments:")
+        for start, end in segments:
+            print(f"- From {start:.2f}s to {end:.2f}s")
+    else:
+        print("✅ No deepfake segments detected")
+
+    # Save CSV and plot
+    save_scores_csv_and_plot(scores_list)
+
+if __name__ == "__main__":
+    main()
